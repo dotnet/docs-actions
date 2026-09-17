@@ -32,14 +32,16 @@ buffer.WriteLineToBufferAndOutput(topMatter, false);
 
 // Entry to update GitHub Actions
 string gitHubActions = """
-    - package-ecosystem: "github-actions" # Core GitHub Actions
-      directory: "/"
-      schedule:
-        interval: "weekly"
-        day: "wednesday"
-      open-pull-requests-limit: 10
-      cooldown:
-       default-days: 7
+   # Update GitHub action commit SHAs
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    groups:
+      github-actions:
+        patterns: ["*"]
+    schedule:
+      interval: "weekly"
+    cooldown:
+     default-days: 7
   """;
 
 buffer.WriteLineToBufferAndOutput(gitHubActions, updateNodeCount++ >= UpdateNodeLimit);

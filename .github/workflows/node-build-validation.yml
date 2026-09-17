@@ -1,0 +1,34 @@
+name: node build and test
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+    - 'ops-build-reporter/**'
+    - 'status-checker/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+    - 'ops-build-reporter/**'
+    - 'status-checker/**'
+
+jobs:
+  build:
+    name: build ${{ matrix.action }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        action: [ops-build-reporter, status-checker]
+    steps:
+    - uses: actions/checkout@v7
+    - name: Use Node.js 18
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: 18
+        cache: 'npm'
+        cache-dependency-path: ./${{ matrix.action }}/package-lock.json
+    - run: |
+        cd ./${{ matrix.action }}/
+        npm ci
+        npm run build --if-present
+        npm test

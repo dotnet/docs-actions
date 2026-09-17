@@ -1,0 +1,6 @@
+* @dotnet/docs
+
+dependabot-bot/ @dotnet/docs
+docs-verifier/ @BillWagner
+dotnet-version-updater/ @IEvangelist
+status-checker/ @gewarren

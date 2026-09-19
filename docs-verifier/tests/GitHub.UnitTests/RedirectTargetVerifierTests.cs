@@ -101,6 +101,75 @@ public class RedirectTargetVerifierTests
     }
 
     [Fact]
+    public async Task WriteResultsAsyncReturnsTrueFor404UrlWhenTargetIsNewlyIntroduced()
+    {
+        string redirectionFilePath = await CreateRedirectionFileAsync("/dotnet/new-file?view=net-10.0#heading");
+
+        try
+        {
+            using var writer = new StringWriter();
+            bool result = await RedirectTargetVerifier.WriteResultsAsync(
+                writer,
+                redirectionFilePath,
+                _ => Task.FromResult<HttpStatusCode?>(HttpStatusCode.NotFound),
+                new HashSet<string>(["docs/new-file.md"], StringComparer.OrdinalIgnoreCase));
+
+            Assert.True(result);
+            Assert.DoesNotContain("returns 404", writer.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(redirectionFilePath);
+        }
+    }
+
+    [Fact]
+    public async Task WriteResultsAsyncReturnsFalseFor404UrlWhenTargetIsNotNewlyIntroduced()
+    {
+        string redirectionFilePath = await CreateRedirectionFileAsync("/dotnet/new-file");
+
+        try
+        {
+            using var writer = new StringWriter();
+            bool result = await RedirectTargetVerifier.WriteResultsAsync(
+                writer,
+                redirectionFilePath,
+                _ => Task.FromResult<HttpStatusCode?>(HttpStatusCode.NotFound),
+                new HashSet<string>(["docs/other-file.md"], StringComparer.OrdinalIgnoreCase));
+
+            Assert.False(result);
+            Assert.Contains("returns 404", writer.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(redirectionFilePath);
+        }
+    }
+
+    [Fact]
+    public async Task WriteResultsAsyncReturnsFalseForRedirectPathOutsideDocs()
+    {
+        string redirectionFilePath = await CreateRedirectionFileAsync("/dotnet/../new-file");
+
+        try
+        {
+            using var writer = new StringWriter();
+            bool result = await RedirectTargetVerifier.WriteResultsAsync(
+                writer,
+                redirectionFilePath,
+                _ => Task.FromResult<HttpStatusCode?>(HttpStatusCode.NotFound),
+                new HashSet<string>(["new-file.md"], StringComparer.OrdinalIgnoreCase));
+
+            Assert.False(result);
+            Assert.Contains("returns 404", writer.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(redirectionFilePath);
+        }
+    }
+
+    [Fact]
     public async Task WriteResultsAsyncReturnsFalseForMissingRedirectionFileWithFileAnnotation()
     {
         string redirectionFilePath = Path.Combine(Path.GetTempPath(), $"redirect-missing-{Guid.NewGuid():N}.json");

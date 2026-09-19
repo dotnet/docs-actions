@@ -7,6 +7,7 @@ namespace RedirectionVerifier;
 public static class RedirectTargetVerifier
 {
     private const string LearnMicrosoftCom = "https://learn.microsoft.com";
+    private const string DotnetPrefix = "/dotnet/";
     private static readonly HttpClient s_httpClient = new()
     {
         Timeout = TimeSpan.FromSeconds(15)
@@ -20,14 +21,28 @@ public static class RedirectTargetVerifier
         string redirectionFilePath)
         => await WriteResultsAsync(writer, redirectionFilePath, GetStatusCodeAsync);
 
+    public static async Task<bool> WriteResultsAsync(
+        TextWriter writer,
+        string redirectionFilePath,
+        IReadOnlySet<string> newlyIntroducedTargetPaths)
+        => await WriteResultsAsync(writer, redirectionFilePath, GetStatusCodeAsync, newlyIntroducedTargetPaths);
+
     internal static async Task<bool> WriteResultsAsync(
         TextWriter writer,
         string redirectionFilePath,
         Func<Uri, Task<HttpStatusCode?>> statusCodeProvider)
+        => await WriteResultsAsync(writer, redirectionFilePath, statusCodeProvider, new HashSet<string>());
+
+    internal static async Task<bool> WriteResultsAsync(
+        TextWriter writer,
+        string redirectionFilePath,
+        Func<Uri, Task<HttpStatusCode?>> statusCodeProvider,
+        IReadOnlySet<string> newlyIntroducedTargetPaths)
     {
         ArgumentNullException.ThrowIfNull(writer, nameof(writer));
         ArgumentNullException.ThrowIfNull(redirectionFilePath, nameof(redirectionFilePath));
         ArgumentNullException.ThrowIfNull(statusCodeProvider, nameof(statusCodeProvider));
+        ArgumentNullException.ThrowIfNull(newlyIntroducedTargetPaths, nameof(newlyIntroducedTargetPaths));
 
         if (!File.Exists(redirectionFilePath))
         {
@@ -90,6 +105,11 @@ public static class RedirectTargetVerifier
 
             if (statusCode == HttpStatusCode.NotFound)
             {
+                if (IsNewlyIntroducedTarget(redirectUrl, newlyIntroducedTargetPaths))
+                {
+                    continue;
+                }
+
                 await WriteErrorAsync(writer, redirectionFilePath, lineNumber, $"Redirect target returns 404: '{redirectUrl}'.");
                 isValid = false;
             }
@@ -244,6 +264,51 @@ public static class RedirectTargetVerifier
         }
 
         return lineNumbers;
+    }
+
+    private static bool IsNewlyIntroducedTarget(
+        string redirectUrl,
+        IReadOnlySet<string> newlyIntroducedTargetPaths)
+    {
+        if (!TryGetRepositoryPathForRedirectUrl(redirectUrl, out string? repositoryPathWithoutExtension))
+        {
+            return false;
+        }
+
+        return newlyIntroducedTargetPaths.Contains(
+                NormalizePath($"{repositoryPathWithoutExtension}.md"))
+            || newlyIntroducedTargetPaths.Contains(
+                NormalizePath($"{repositoryPathWithoutExtension}.yml"));
+    }
+
+    private static bool TryGetRepositoryPathForRedirectUrl(string redirectUrl, out string? repositoryPathWithoutExtension)
+    {
+        repositoryPathWithoutExtension = null;
+
+        if (!redirectUrl.StartsWith(DotnetPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        int queryOrFragmentStart = redirectUrl.IndexOfAny(['?', '#']);
+        string cleanRedirectPath = queryOrFragmentStart >= 0
+            ? redirectUrl[..queryOrFragmentStart]
+            : redirectUrl;
+
+string relativeSegments = cleanRedirectPath[DotnetPrefix.Length..]
+    .Replace('/', Path.DirectorySeparatorChar);
+string docsRoot = Path.GetFullPath("docs");
+string candidatePath = Path.GetFullPath(Path.Combine(docsRoot, relativeSegments));
+string relativePath = Path.GetRelativePath(docsRoot, candidatePath);
+if (relativePath.Equals("..", StringComparison.Ordinal)
+    || relativePath.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+    || relativePath.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal))
+{
+    return false;
+}
+
+repositoryPathWithoutExtension = NormalizePath(Path.GetRelativePath(Directory.GetCurrentDirectory(), candidatePath));
+return true;
     }
 
     private static Task WriteErrorAsync(TextWriter writer, string filePath, int? lineNumber, string message)

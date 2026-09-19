@@ -129,9 +129,19 @@ IEnumerable<string> modifiedRedirectionFiles = pullRequestFiles
     .Select(file => file.FileName)
     .Distinct(StringComparer.OrdinalIgnoreCase);
 
+HashSet<string> newlyIntroducedTargetPaths = pullRequestFiles
+    .Where(file => file.IsAdded() || file.IsRenamed())
+    .Select(file => file.FileName)
+    .Where(IsYmlOrMarkdownFile)
+    .Select(NormalizePath)
+    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
 foreach (string redirectionFilePath in modifiedRedirectionFiles)
 {
-    if (!await RedirectTargetVerifier.WriteResultsAsync(Console.Out, redirectionFilePath))
+    if (!await RedirectTargetVerifier.WriteResultsAsync(
+        Console.Out,
+        redirectionFilePath,
+        newlyIntroducedTargetPaths))
     {
         returnCode++;
     }

@@ -307,7 +307,7 @@ if (relativePath.Equals("..", StringComparison.Ordinal)
     return false;
 }
 
-repositoryPathWithoutExtension = candidatePath;
+repositoryPathWithoutExtension = NormalizePath(Path.GetRelativePath(Directory.GetCurrentDirectory(), candidatePath));
 return true;
     }
 

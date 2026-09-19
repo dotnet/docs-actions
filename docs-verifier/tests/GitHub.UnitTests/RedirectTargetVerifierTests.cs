@@ -101,6 +101,29 @@ public class RedirectTargetVerifierTests
     }
 
     [Fact]
+    public async Task WriteResultsAsyncReturnsTrueFor404UrlWhenTargetExistsInRepository()
+    {
+        string redirectionFilePath = await CreateRedirectionFileAsync("/dotnet/new-file");
+
+        try
+        {
+            using var writer = new StringWriter();
+            bool result = await RedirectTargetVerifier.WriteResultsAsync(
+                writer,
+                redirectionFilePath,
+                _ => Task.FromResult<HttpStatusCode?>(HttpStatusCode.NotFound),
+                _ => true);
+
+            Assert.True(result);
+            Assert.DoesNotContain("returns 404", writer.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(redirectionFilePath);
+        }
+    }
+
+    [Fact]
     public async Task WriteResultsAsyncReturnsFalseForMissingRedirectionFileWithFileAnnotation()
     {
         string redirectionFilePath = Path.Combine(Path.GetTempPath(), $"redirect-missing-{Guid.NewGuid():N}.json");

@@ -7,6 +7,7 @@ namespace RedirectionVerifier;
 public static class RedirectTargetVerifier
 {
     private const string LearnMicrosoftCom = "https://learn.microsoft.com";
+    private const string DotnetPrefix = "/dotnet/";
     private static readonly HttpClient s_httpClient = new()
     {
         Timeout = TimeSpan.FromSeconds(15)
@@ -23,11 +24,13 @@ public static class RedirectTargetVerifier
     internal static async Task<bool> WriteResultsAsync(
         TextWriter writer,
         string redirectionFilePath,
-        Func<Uri, Task<HttpStatusCode?>> statusCodeProvider)
+        Func<Uri, Task<HttpStatusCode?>> statusCodeProvider,
+        Func<string, bool>? redirectTargetExistsInRepository = null)
     {
         ArgumentNullException.ThrowIfNull(writer, nameof(writer));
         ArgumentNullException.ThrowIfNull(redirectionFilePath, nameof(redirectionFilePath));
         ArgumentNullException.ThrowIfNull(statusCodeProvider, nameof(statusCodeProvider));
+        redirectTargetExistsInRepository ??= RedirectTargetExistsInRepository;
 
         if (!File.Exists(redirectionFilePath))
         {
@@ -90,6 +93,11 @@ public static class RedirectTargetVerifier
 
             if (statusCode == HttpStatusCode.NotFound)
             {
+                if (redirectTargetExistsInRepository(redirectUrl))
+                {
+                    continue;
+                }
+
                 await WriteErrorAsync(writer, redirectionFilePath, lineNumber, $"Redirect target returns 404: '{redirectUrl}'.");
                 isValid = false;
             }
@@ -244,6 +252,37 @@ public static class RedirectTargetVerifier
         }
 
         return lineNumbers;
+    }
+
+    private static bool RedirectTargetExistsInRepository(string redirectUrl)
+    {
+        if (!TryGetRepositoryPathForRedirectUrl(redirectUrl, out string? repositoryPathWithoutExtension))
+        {
+            return false;
+        }
+
+        return File.Exists($"{repositoryPathWithoutExtension}.md")
+            || File.Exists($"{repositoryPathWithoutExtension}.yml");
+    }
+
+    private static bool TryGetRepositoryPathForRedirectUrl(string redirectUrl, out string? repositoryPathWithoutExtension)
+    {
+        repositoryPathWithoutExtension = null;
+
+        if (!redirectUrl.StartsWith(DotnetPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        int queryOrFragmentStart = redirectUrl.IndexOfAny(['?', '#']);
+        string cleanRedirectPath = queryOrFragmentStart >= 0
+            ? redirectUrl[..queryOrFragmentStart]
+            : redirectUrl;
+
+        string relativeSegments = cleanRedirectPath[DotnetPrefix.Length..]
+            .Replace('/', Path.DirectorySeparatorChar);
+        repositoryPathWithoutExtension = Path.Combine("docs", relativeSegments);
+        return true;
     }
 
     private static Task WriteErrorAsync(TextWriter writer, string filePath, int? lineNumber, string message)

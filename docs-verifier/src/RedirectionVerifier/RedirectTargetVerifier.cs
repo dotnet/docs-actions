@@ -279,10 +279,20 @@ public static class RedirectTargetVerifier
             ? redirectUrl[..queryOrFragmentStart]
             : redirectUrl;
 
-        string relativeSegments = cleanRedirectPath[DotnetPrefix.Length..]
-            .Replace('/', Path.DirectorySeparatorChar);
-        repositoryPathWithoutExtension = Path.Combine("docs", relativeSegments);
-        return true;
+string relativeSegments = cleanRedirectPath[DotnetPrefix.Length..]
+    .Replace('/', Path.DirectorySeparatorChar);
+string docsRoot = Path.GetFullPath("docs");
+string candidatePath = Path.GetFullPath(Path.Combine(docsRoot, relativeSegments));
+string relativePath = Path.GetRelativePath(docsRoot, candidatePath);
+if (relativePath.Equals("..", StringComparison.Ordinal)
+    || relativePath.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+    || relativePath.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal))
+{
+    return false;
+}
+
+repositoryPathWithoutExtension = candidatePath;
+return true;
     }
 
     private static Task WriteErrorAsync(TextWriter writer, string filePath, int? lineNumber, string message)

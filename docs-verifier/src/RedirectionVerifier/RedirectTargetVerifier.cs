@@ -21,16 +21,28 @@ public static class RedirectTargetVerifier
         string redirectionFilePath)
         => await WriteResultsAsync(writer, redirectionFilePath, GetStatusCodeAsync);
 
+    public static async Task<bool> WriteResultsAsync(
+        TextWriter writer,
+        string redirectionFilePath,
+        IReadOnlySet<string> newlyIntroducedTargetPaths)
+        => await WriteResultsAsync(writer, redirectionFilePath, GetStatusCodeAsync, newlyIntroducedTargetPaths);
+
+    internal static async Task<bool> WriteResultsAsync(
+        TextWriter writer,
+        string redirectionFilePath,
+        Func<Uri, Task<HttpStatusCode?>> statusCodeProvider)
+        => await WriteResultsAsync(writer, redirectionFilePath, statusCodeProvider, new HashSet<string>());
+
     internal static async Task<bool> WriteResultsAsync(
         TextWriter writer,
         string redirectionFilePath,
         Func<Uri, Task<HttpStatusCode?>> statusCodeProvider,
-        Func<string, bool>? redirectTargetExistsInRepository = null)
+        IReadOnlySet<string> newlyIntroducedTargetPaths)
     {
         ArgumentNullException.ThrowIfNull(writer, nameof(writer));
         ArgumentNullException.ThrowIfNull(redirectionFilePath, nameof(redirectionFilePath));
         ArgumentNullException.ThrowIfNull(statusCodeProvider, nameof(statusCodeProvider));
-        redirectTargetExistsInRepository ??= RedirectTargetExistsInRepository;
+        ArgumentNullException.ThrowIfNull(newlyIntroducedTargetPaths, nameof(newlyIntroducedTargetPaths));
 
         if (!File.Exists(redirectionFilePath))
         {
@@ -93,7 +105,7 @@ public static class RedirectTargetVerifier
 
             if (statusCode == HttpStatusCode.NotFound)
             {
-                if (redirectTargetExistsInRepository(redirectUrl))
+                if (IsNewlyIntroducedTarget(redirectUrl, newlyIntroducedTargetPaths))
                 {
                     continue;
                 }
@@ -254,15 +266,19 @@ public static class RedirectTargetVerifier
         return lineNumbers;
     }
 
-    private static bool RedirectTargetExistsInRepository(string redirectUrl)
+    private static bool IsNewlyIntroducedTarget(
+        string redirectUrl,
+        IReadOnlySet<string> newlyIntroducedTargetPaths)
     {
         if (!TryGetRepositoryPathForRedirectUrl(redirectUrl, out string? repositoryPathWithoutExtension))
         {
             return false;
         }
 
-        return File.Exists($"{repositoryPathWithoutExtension}.md")
-            || File.Exists($"{repositoryPathWithoutExtension}.yml");
+        return newlyIntroducedTargetPaths.Contains(
+                NormalizePath($"{repositoryPathWithoutExtension}.md"))
+            || newlyIntroducedTargetPaths.Contains(
+                NormalizePath($"{repositoryPathWithoutExtension}.yml"));
     }
 
     private static bool TryGetRepositoryPathForRedirectUrl(string redirectUrl, out string? repositoryPathWithoutExtension)
@@ -279,9 +295,25 @@ public static class RedirectTargetVerifier
             ? redirectUrl[..queryOrFragmentStart]
             : redirectUrl;
 
-        string relativeSegments = cleanRedirectPath[DotnetPrefix.Length..]
-            .Replace('/', Path.DirectorySeparatorChar);
-        repositoryPathWithoutExtension = Path.Combine("docs", relativeSegments);
+        string relativeSegments = cleanRedirectPath[DotnetPrefix.Length..];
+        if (relativeSegments.Length == 0
+            || relativeSegments[0] is '/' or '\\')
+        {
+            return false;
+        }
+
+        string repositoryRoot = Path.GetFullPath(Directory.GetCurrentDirectory());
+        string docsRoot = Path.GetFullPath(Path.Combine(repositoryRoot, "docs"));
+        string candidatePath = Path.GetFullPath(
+            Path.Combine(docsRoot, relativeSegments.Replace('/', Path.DirectorySeparatorChar)));
+        string relativeToDocs = Path.GetRelativePath(docsRoot, candidatePath);
+        if (relativeToDocs.Equals("..", StringComparison.Ordinal)
+            || relativeToDocs.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        repositoryPathWithoutExtension = NormalizePath(Path.GetRelativePath(repositoryRoot, candidatePath));
         return true;
     }
 

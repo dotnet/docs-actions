@@ -295,26 +295,20 @@ public static class RedirectTargetVerifier
             ? redirectUrl[..queryOrFragmentStart]
             : redirectUrl;
 
-        string relativeSegments = cleanRedirectPath[DotnetPrefix.Length..];
-        if (relativeSegments.Length == 0
-            || relativeSegments[0] is '/' or '\\')
-        {
-            return false;
-        }
+string relativeSegments = cleanRedirectPath[DotnetPrefix.Length..]
+    .Replace('/', Path.DirectorySeparatorChar);
+string docsRoot = Path.GetFullPath("docs");
+string candidatePath = Path.GetFullPath(Path.Combine(docsRoot, relativeSegments));
+string relativePath = Path.GetRelativePath(docsRoot, candidatePath);
+if (relativePath.Equals("..", StringComparison.Ordinal)
+    || relativePath.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+    || relativePath.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal))
+{
+    return false;
+}
 
-        string repositoryRoot = Path.GetFullPath(Directory.GetCurrentDirectory());
-        string docsRoot = Path.GetFullPath(Path.Combine(repositoryRoot, "docs"));
-        string candidatePath = Path.GetFullPath(
-            Path.Combine(docsRoot, relativeSegments.Replace('/', Path.DirectorySeparatorChar)));
-        string relativeToDocs = Path.GetRelativePath(docsRoot, candidatePath);
-        if (relativeToDocs.Equals("..", StringComparison.Ordinal)
-            || relativeToDocs.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        repositoryPathWithoutExtension = NormalizePath(Path.GetRelativePath(repositoryRoot, candidatePath));
-        return true;
+repositoryPathWithoutExtension = candidatePath;
+return true;
     }
 
     private static Task WriteErrorAsync(TextWriter writer, string filePath, int? lineNumber, string message)

@@ -6,11 +6,11 @@ import {
 import { describe, expect, it } from "@jest/globals";
 
 describe("status-checker", () => {
-    it("waits 5 minutes before checking build completion", () => {
+    it("configures a 5-minute initial wait", () => {
         expect(INITIAL_WAIT_MILLISECONDS).toBe(300000);
     });
 
-    it("waits 15 seconds between status checks", () => {
+    it("configures a 15-second polling interval", () => {
         expect(POLLING_INTERVAL_MILLISECONDS).toBe(15000);
     });
 

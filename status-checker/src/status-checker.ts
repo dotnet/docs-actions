@@ -46,6 +46,8 @@ export async function isSuccessStatus(token: string) {
         const loops = 30;
         const waitMinutes =
             (loops * POLLING_INTERVAL_MILLISECONDS) / MILLISECONDS_PER_MINUTE;
+        const pollingIntervalSeconds =
+            POLLING_INTERVAL_MILLISECONDS / MILLISECONDS_PER_SECOND;
         for (let i = 0; i < loops && !buildStatus; i++) {
             // Sleep until the next status check.
             await wait(POLLING_INTERVAL_MILLISECONDS);
@@ -76,8 +78,6 @@ export async function isSuccessStatus(token: string) {
 
         // Check state of OPS status check.
         while (buildStatus.state === "pending") {
-            const pollingIntervalSeconds =
-                POLLING_INTERVAL_MILLISECONDS / MILLISECONDS_PER_SECOND;
             console.log(
                 `OPS status check is still pending; sleeping for ${pollingIntervalSeconds} seconds.`
             );

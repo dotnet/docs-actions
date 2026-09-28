@@ -1,6 +1,11 @@
 import { setFailed } from "@actions/core";
 import { context, getOctokit } from "@actions/github";
-import { POLLING_INTERVAL_MILLISECONDS, wait } from "./wait";
+import {
+    MILLISECONDS_PER_MINUTE,
+    MILLISECONDS_PER_SECOND,
+    POLLING_INTERVAL_MILLISECONDS,
+    wait,
+} from "./wait";
 
 export async function isSuccessStatus(token: string) {
     const octokit = getOctokit(token);
@@ -40,9 +45,9 @@ export async function isSuccessStatus(token: string) {
         // (This is unusual.)
         const loops = 30;
         const waitMinutes =
-            (loops * POLLING_INTERVAL_MILLISECONDS) / 60000;
+            (loops * POLLING_INTERVAL_MILLISECONDS) / MILLISECONDS_PER_MINUTE;
         for (let i = 0; i < loops && !buildStatus; i++) {
-            // Sleep for 15 seconds.
+            // Sleep until the next status check.
             await wait(POLLING_INTERVAL_MILLISECONDS);
 
             const { data: statuses } =
@@ -71,11 +76,13 @@ export async function isSuccessStatus(token: string) {
 
         // Check state of OPS status check.
         while (buildStatus.state === "pending") {
+            const pollingIntervalSeconds =
+                POLLING_INTERVAL_MILLISECONDS / MILLISECONDS_PER_SECOND;
             console.log(
-                "OPS status check is still pending; sleeping for 15 seconds."
+                `OPS status check is still pending; sleeping for ${pollingIntervalSeconds} seconds.`
             );
 
-            // Sleep for 15 seconds.
+            // Sleep until the next status check.
             await wait(POLLING_INTERVAL_MILLISECONDS);
 
             // Get latest OPS status.

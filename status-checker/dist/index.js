@@ -40,9 +40,9 @@ async function isSuccessStatus(token) {
         // Loop and wait if there's no OPS build status yet.
         // (This is unusual.)
         const loops = 30;
-        const waitMinutes = (loops * wait_1.POLLING_INTERVAL_MILLISECONDS) / 60000;
+        const waitMinutes = (loops * wait_1.POLLING_INTERVAL_MILLISECONDS) / wait_1.MILLISECONDS_PER_MINUTE;
         for (let i = 0; i < loops && !buildStatus; i++) {
-            // Sleep for 15 seconds.
+            // Sleep until the next status check.
             await (0, wait_1.wait)(wait_1.POLLING_INTERVAL_MILLISECONDS);
             const { data: statuses } = await octokit.rest.repos.listCommitStatusesForRef({
                 owner,
@@ -64,8 +64,9 @@ async function isSuccessStatus(token) {
         }
         // Check state of OPS status check.
         while (buildStatus.state === "pending") {
-            console.log("OPS status check is still pending; sleeping for 15 seconds.");
-            // Sleep for 15 seconds.
+            const pollingIntervalSeconds = wait_1.POLLING_INTERVAL_MILLISECONDS / wait_1.MILLISECONDS_PER_SECOND;
+            console.log(`OPS status check is still pending; sleeping for ${pollingIntervalSeconds} seconds.`);
+            // Sleep until the next status check.
             await (0, wait_1.wait)(wait_1.POLLING_INTERVAL_MILLISECONDS);
             // Get latest OPS status.
             const { data: statuses } = await octokit.rest.repos.listCommitStatusesForRef({
@@ -139,10 +140,12 @@ exports.workflowInput = new WorkflowInput();
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.POLLING_INTERVAL_MILLISECONDS = exports.INITIAL_WAIT_MILLISECONDS = void 0;
+exports.POLLING_INTERVAL_MILLISECONDS = exports.INITIAL_WAIT_MILLISECONDS = exports.MILLISECONDS_PER_MINUTE = exports.MILLISECONDS_PER_SECOND = void 0;
 exports.wait = void 0;
-exports.INITIAL_WAIT_MILLISECONDS = 5 * 60 * 1000;
-exports.POLLING_INTERVAL_MILLISECONDS = 15 * 1000;
+exports.MILLISECONDS_PER_SECOND = 1000;
+exports.MILLISECONDS_PER_MINUTE = 60 * exports.MILLISECONDS_PER_SECOND;
+exports.INITIAL_WAIT_MILLISECONDS = 5 * exports.MILLISECONDS_PER_MINUTE;
+exports.POLLING_INTERVAL_MILLISECONDS = 15 * exports.MILLISECONDS_PER_SECOND;
 async function wait(milliseconds) {
     return new Promise((resolve) => {
         if (isNaN(milliseconds)) {
@@ -31998,7 +32001,7 @@ async function run() {
         const token = WorkflowInput_1.workflowInput.repoToken;
         // Wait 5 minutes before checking status check result.
         await (0, wait_1.wait)(wait_1.INITIAL_WAIT_MILLISECONDS);
-        console.log("Waited 5 minutes.");
+        console.log(`Waited ${wait_1.INITIAL_WAIT_MILLISECONDS / wait_1.MILLISECONDS_PER_MINUTE} minutes.`);
         // Wait for success/fail status of the build.
         const isSuccess = await (0, status_checker_1.isSuccessStatus)(token);
         if (isSuccess) {

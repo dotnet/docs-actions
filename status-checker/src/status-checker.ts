@@ -1,6 +1,6 @@
 import { setFailed } from "@actions/core";
 import { context, getOctokit } from "@actions/github";
-import { wait } from "./wait";
+import { POLLING_INTERVAL_MILLISECONDS, wait } from "./wait";
 
 export async function isSuccessStatus(token: string) {
     const octokit = getOctokit(token);
@@ -39,9 +39,11 @@ export async function isSuccessStatus(token: string) {
         // Loop and wait if there's no OPS build status yet.
         // (This is unusual.)
         const loops = 30;
+        const waitMinutes =
+            (loops * POLLING_INTERVAL_MILLISECONDS) / 60000;
         for (let i = 0; i < loops && !buildStatus; i++) {
-            // Sleep for 10 seconds.
-            await wait(10000);
+            // Sleep for 15 seconds.
+            await wait(POLLING_INTERVAL_MILLISECONDS);
 
             const { data: statuses } =
                 await octokit.rest.repos.listCommitStatusesForRef({
@@ -63,20 +65,18 @@ export async function isSuccessStatus(token: string) {
         // Didn't find OPS status. This is bad.
         if (!buildStatus) {
             setFailed(
-                `Did not find OPS status check after waiting for ${
-                    (loops * 10) / 60
-                } minutes. If it shows 'Expected — Waiting for status to be reported', close and reopen the pull request to trigger a build.`
+                `Did not find OPS status check after waiting for ${waitMinutes} minutes. If it shows 'Expected — Waiting for status to be reported', close and reopen the pull request to trigger a build.`
             );
         }
 
         // Check state of OPS status check.
         while (buildStatus.state === "pending") {
             console.log(
-                "OPS status check is still pending; sleeping for 10 seconds."
+                "OPS status check is still pending; sleeping for 15 seconds."
             );
 
-            // Sleep for 10 seconds.
-            await wait(10000);
+            // Sleep for 15 seconds.
+            await wait(POLLING_INTERVAL_MILLISECONDS);
 
             // Get latest OPS status.
             const { data: statuses } =

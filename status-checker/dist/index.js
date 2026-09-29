@@ -40,9 +40,11 @@ async function isSuccessStatus(token) {
         // Loop and wait if there's no OPS build status yet.
         // (This is unusual.)
         const loops = 30;
+        const waitMinutes = (loops * wait_1.POLLING_INTERVAL_MILLISECONDS) / wait_1.MILLISECONDS_PER_MINUTE;
+        const pollingIntervalSeconds = wait_1.POLLING_INTERVAL_MILLISECONDS / wait_1.MILLISECONDS_PER_SECOND;
         for (let i = 0; i < loops && !buildStatus; i++) {
-            // Sleep for 10 seconds.
-            await (0, wait_1.wait)(10000);
+            // Sleep until the next status check.
+            await (0, wait_1.wait)(wait_1.POLLING_INTERVAL_MILLISECONDS);
             const { data: statuses } = await octokit.rest.repos.listCommitStatusesForRef({
                 owner,
                 repo,
@@ -59,13 +61,13 @@ async function isSuccessStatus(token) {
         }
         // Didn't find OPS status. This is bad.
         if (!buildStatus) {
-            (0, core_1.setFailed)(`Did not find OPS status check after waiting for ${(loops * 10) / 60} minutes. If it shows 'Expected — Waiting for status to be reported', close and reopen the pull request to trigger a build.`);
+            (0, core_1.setFailed)(`Did not find OPS status check after waiting for ${waitMinutes} minutes. If it shows 'Expected — Waiting for status to be reported', close and reopen the pull request to trigger a build.`);
         }
         // Check state of OPS status check.
         while (buildStatus.state === "pending") {
-            console.log("OPS status check is still pending; sleeping for 10 seconds.");
-            // Sleep for 10 seconds.
-            await (0, wait_1.wait)(10000);
+            console.log(`OPS status check is still pending; sleeping for ${pollingIntervalSeconds} seconds.`);
+            // Sleep until the next status check.
+            await (0, wait_1.wait)(wait_1.POLLING_INTERVAL_MILLISECONDS);
             // Get latest OPS status.
             const { data: statuses } = await octokit.rest.repos.listCommitStatusesForRef({
                 owner,
@@ -138,7 +140,12 @@ exports.workflowInput = new WorkflowInput();
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.POLLING_INTERVAL_MILLISECONDS = exports.INITIAL_WAIT_MILLISECONDS = exports.MILLISECONDS_PER_MINUTE = exports.MILLISECONDS_PER_SECOND = void 0;
 exports.wait = void 0;
+exports.MILLISECONDS_PER_SECOND = 1000;
+exports.MILLISECONDS_PER_MINUTE = 60 * exports.MILLISECONDS_PER_SECOND;
+exports.INITIAL_WAIT_MILLISECONDS = 5 * exports.MILLISECONDS_PER_MINUTE;
+exports.POLLING_INTERVAL_MILLISECONDS = 15 * exports.MILLISECONDS_PER_SECOND;
 async function wait(milliseconds) {
     return new Promise((resolve) => {
         if (isNaN(milliseconds)) {
@@ -31992,9 +31999,9 @@ const WorkflowInput_1 = __nccwpck_require__(6741);
 async function run() {
     try {
         const token = WorkflowInput_1.workflowInput.repoToken;
-        // Wait 60 seconds before checking status check result.
-        await (0, wait_1.wait)(60000);
-        console.log("Waited 60 seconds.");
+        // Wait 5 minutes before checking status check result.
+        await (0, wait_1.wait)(wait_1.INITIAL_WAIT_MILLISECONDS);
+        console.log(`Waited ${wait_1.INITIAL_WAIT_MILLISECONDS / wait_1.MILLISECONDS_PER_MINUTE} minutes.`);
         // Wait for success/fail status of the build.
         const isSuccess = await (0, status_checker_1.isSuccessStatus)(token);
         if (isSuccess) {

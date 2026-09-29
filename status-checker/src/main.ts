@@ -1,4 +1,8 @@
-import { wait } from "./wait";
+import {
+    INITIAL_WAIT_MILLISECONDS,
+    MILLISECONDS_PER_MINUTE,
+    wait,
+} from "./wait";
 import { isSuccessStatus } from "./status-checker";
 import { setFailed } from "@actions/core";
 import { workflowInput } from "./types/WorkflowInput";
@@ -7,9 +11,13 @@ async function run(): Promise<void> {
     try {
         const token: string = workflowInput.repoToken;
 
-        // Wait 60 seconds before checking status check result.
-        await wait(60000);
-        console.log("Waited 60 seconds.");
+        // Wait 5 minutes before checking status check result.
+        await wait(INITIAL_WAIT_MILLISECONDS);
+        console.log(
+            `Waited ${
+                INITIAL_WAIT_MILLISECONDS / MILLISECONDS_PER_MINUTE
+            } minutes.`
+        );
 
         // Wait for success/fail status of the build.
         const isSuccess = await isSuccessStatus(token);

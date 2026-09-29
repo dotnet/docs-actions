@@ -1,7 +1,19 @@
-import { wait } from "../src/wait";
+import {
+    INITIAL_WAIT_MILLISECONDS,
+    POLLING_INTERVAL_MILLISECONDS,
+    wait,
+} from "../src/wait";
 import { describe, expect, it } from "@jest/globals";
 
 describe("status-checker", () => {
+    it("configures a 5-minute initial wait", () => {
+        expect(INITIAL_WAIT_MILLISECONDS).toBe(300000);
+    });
+
+    it("configures a 15-second polling interval", () => {
+        expect(POLLING_INTERVAL_MILLISECONDS).toBe(15000);
+    });
+
     it("throws invalid number when given 'foo' string", async () => {
         const input = parseInt("foo", 10);
         await expect(wait(input)).rejects.toThrow("milliseconds not a number");

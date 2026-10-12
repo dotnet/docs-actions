@@ -24,8 +24,16 @@ public static class MarkdownFilesAnalyzer
         MarkdownLinksVerifierConfiguration? config)
     {
         var result = new List<LinkError>();
-        foreach (string file in Directory.EnumerateFiles(Directory.GetCurrentDirectory(), "*.md", SearchOption.AllDirectories))
+        string rootDirectory = Directory.GetCurrentDirectory();
+        foreach (string file in Directory.EnumerateFiles(rootDirectory, "*.md", SearchOption.AllDirectories))
         {
+            string relativeFile = Path.GetRelativePath(rootDirectory, file);
+            string? relativeDirectory = Path.GetDirectoryName(relativeFile);
+            if (relativeDirectory is not null && config?.IsDirectoryExcluded(relativeDirectory) is true)
+            {
+                continue;
+            }
+
             string? directory = Path.GetDirectoryName(file) ??
                 throw new InvalidOperationException($"Cannot get directory for '{file}'.");
 
@@ -39,8 +47,7 @@ public static class MarkdownFilesAnalyzer
                 if (!IsLinkExcluded(config, url) && validator.Validate(url, file) is { State: not ValidationState.Valid, AbsolutePathWithoutHeading: var absolutePath })
                 {
                     result.Add(new LinkError(
-                        Path.GetRelativePath(
-                            Directory.GetCurrentDirectory(), file), url, absolutePath, link.UrlSpan!));
+                        relativeFile, url, absolutePath, link.UrlSpan!));
                 }
             }
         }

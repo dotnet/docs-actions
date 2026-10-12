@@ -28,6 +28,10 @@ public class ConfigurationReaderTests
   ""excludeStartingWith"": [
     ""xref:"",
     ""~/""{trailingComma}
+  ],
+  ""excludeDirectories"": [
+    ""docs/archive"",
+    ""samples/legacy""{trailingComma}
   ]
 }}");
             MarkdownLinksVerifierConfiguration? configuration =
@@ -36,6 +40,9 @@ public class ConfigurationReaderTests
             Assert.Equal(2, configuration.ExcludeStartingWith.Length);
             Assert.Contains(@"xref:", configuration.ExcludeStartingWith, StringComparer.Ordinal);
             Assert.Contains("~/", configuration.ExcludeStartingWith, StringComparer.Ordinal);
+            Assert.Equal(2, configuration.ExcludeDirectories.Length);
+            Assert.Contains("docs/archive", configuration.ExcludeDirectories, StringComparer.Ordinal);
+            Assert.Contains("samples/legacy", configuration.ExcludeDirectories, StringComparer.Ordinal);
         }
         finally
         {

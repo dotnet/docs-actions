@@ -1,4 +1,5 @@
-﻿using System.Diagnostics.CodeAnalysis;
+﻿using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using MarkdownLinksVerifier.Configuration;
 using Xunit;
 
@@ -39,6 +40,33 @@ public class LocalLinkValidatorTests
         };
 
         Assert.Equal(expected, result, s_linkErrorComparer);
+    }
+
+    [Fact]
+    public async Task TestExcludedDirectoriesAreNotAnalyzed()
+    {
+        using var workspace = new Workspace
+        {
+            Files =
+            {
+                { "/docs/archive/ignored.md", "[text](missing.md)" },
+                { "/docs/archive/nested/also-ignored.md", "[text](missing.md)" },
+                { "/docs/archived/checked.md", "[text](missing.md)" }
+            }
+        };
+
+        await workspace.InitializeAsync();
+        var configuration = new MarkdownLinksVerifierConfiguration(
+            ImmutableArray<string>.Empty,
+            ImmutableArray.Create(Path.Join(nameof(TestExcludedDirectoriesAreNotAnalyzed), "docs", "archive")));
+
+        List<LinkError> result = await GetResultsAsync(configuration);
+
+        Assert.Collection(result, error =>
+        {
+            Assert.EndsWith(Path.Join("docs", "archived", "checked.md"), error.File, StringComparison.Ordinal);
+            Assert.Equal("missing.md", error.Link);
+        });
     }
 
     [Fact]

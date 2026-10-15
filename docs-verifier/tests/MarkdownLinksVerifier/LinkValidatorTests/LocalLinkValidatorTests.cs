@@ -43,6 +43,25 @@ public class LocalLinkValidatorTests
     }
 
     [Fact]
+    public async Task TestTildeLinkIsRelativeToNearestDocfxConfiguration()
+    {
+        using var workspace = new Workspace
+        {
+            Files =
+            {
+                { "/docs/docfx.json", "{}" },
+                { "/docs/content/page.md", "[target](~/content/target.md)" },
+                { "/docs/content/target.md", "Target" }
+            }
+        };
+
+        await workspace.InitializeAsync();
+        List<LinkError> result = await GetResultsAsync();
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
     public async Task TestExcludedDirectoriesAreNotAnalyzed()
     {
         using var workspace = new Workspace

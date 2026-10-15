@@ -10,6 +10,7 @@ namespace MarkdownLinksVerifier.LinkValidator;
 internal class LocalLinkValidator : ILinkValidator
 {
     private readonly string _baseDirectory;
+    private readonly string _docfxConfigurationDirectory;
     private static readonly MarkdownPipeline s_pipeline = new MarkdownPipelineBuilder().UseAutoIdentifiers(AutoIdentifierOptions.GitHub).Build(); // TODO: Is AutoIdentifierOptions.GitHub the correct value to use?
 
     // https://github.com/dotnet/docfx/blob/64fa7e4ed1c1f416e672f2aee2307fd98a21383e/src/Microsoft.DocAsCode.Dfm/Rules/DfmIncludeBlockRule.cs#L44
@@ -20,7 +21,11 @@ internal class LocalLinkValidator : ILinkValidator
         new(@"^\[!INCLUDE\s*\-?\s*\[((?:\[[^\]]*\]|[^\[\]]|\](?=[^\[]*\]))*)\]\(\s*<?([^)]*?)>?(?:\s+(['""])([\s\S]*?)\3)?\s*\)\]", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline, TimeSpan.FromSeconds(10));
 
 
-    public LocalLinkValidator(string baseDirectory) => _baseDirectory = baseDirectory;
+    public LocalLinkValidator(string baseDirectory, string docfxConfigurationDirectory)
+    {
+        _baseDirectory = baseDirectory;
+        _docfxConfigurationDirectory = docfxConfigurationDirectory;
+    }
 
     public ValidationResult Validate(string link, string filePath)
     {
@@ -40,7 +45,7 @@ internal class LocalLinkValidator : ILinkValidator
         }
 
         link = link.Replace("%20", " ", StringComparison.Ordinal);
-        link = AdjustLinkPath(link, _baseDirectory);
+        link = AdjustLinkPath(link, _baseDirectory, _docfxConfigurationDirectory);
 
         string? headingIdWithoutHash = null;
         int lastIndex = link.LastIndexOf('#');
@@ -84,13 +89,19 @@ internal class LocalLinkValidator : ILinkValidator
         }
     }
 
-    private static string AdjustLinkPath(string link, string baseDirectory)
+    private static string AdjustLinkPath(
+        string link,
+        string baseDirectory,
+        string docfxConfigurationDirectory)
     {
         string relativeTo = baseDirectory;
-        if (link.StartsWith('/') || link.StartsWith("~/", StringComparison.Ordinal))
+        if (link.StartsWith("~/", StringComparison.Ordinal))
         {
-            // The leading slash doesn't matter whether it exists or not.
-            // Only the ~ is problematic and we want to remove it.
+            link = link[1..];
+            relativeTo = docfxConfigurationDirectory;
+        }
+        else if (link.StartsWith('/'))
+        {
             link = link[1..];
             // Links that start with / are relative to the repository root.
             // TODO: Does it work locally (e.g. in VS Code)? Consider a warning for it.
@@ -100,7 +111,7 @@ internal class LocalLinkValidator : ILinkValidator
         return Path.GetFullPath(Path.Join(relativeTo, link));
     }
 
-    private static bool IsHeadingValid(string path, string headingIdWithoutHash)
+    private bool IsHeadingValid(string path, string headingIdWithoutHash)
     {
         if (headingIdWithoutHash.StartsWith("tab/", StringComparison.Ordinal))
         {
@@ -159,10 +170,10 @@ internal class LocalLinkValidator : ILinkValidator
         }
     }
 
-    private static IEnumerable<string> GetIncludes(string fileContents, string baseDirectory)
+    private IEnumerable<string> GetIncludes(string fileContents, string baseDirectory)
     {
         return s_inlineIncludeRegex
             .Matches(fileContents)
-            .Select(m => AdjustLinkPath(m.Groups[2].Value, baseDirectory));
+            .Select(m => AdjustLinkPath(m.Groups[2].Value, baseDirectory, _docfxConfigurationDirectory));
     }
 }

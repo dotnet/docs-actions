@@ -36,6 +36,7 @@ public static class MarkdownFilesAnalyzer
 
             string? directory = Path.GetDirectoryName(file) ??
                 throw new InvalidOperationException($"Cannot get directory for '{file}'.");
+            string docfxConfigurationDirectory = FindDocfxConfigurationDirectory(directory, rootDirectory);
 
             MarkdownDocument document = Markdown.Parse(await File.ReadAllTextAsync(file), s_pipeline);
             foreach (LinkInline link in
@@ -43,7 +44,10 @@ public static class MarkdownFilesAnalyzer
             {
                 string url = link.Url!;
                 LinkClassification classification = Classifier.Classify(url);
-                ILinkValidator validator = LinkValidatorCreator.Create(classification, directory);
+                ILinkValidator validator = LinkValidatorCreator.Create(
+                    classification,
+                    directory,
+                    docfxConfigurationDirectory);
                 if (!IsLinkExcluded(config, url) && validator.Validate(url, file) is { State: not ValidationState.Valid, AbsolutePathWithoutHeading: var absolutePath })
                 {
                     result.Add(new LinkError(
@@ -62,6 +66,28 @@ public static class MarkdownFilesAnalyzer
             }
 
             return config.IsLinkExcluded(url);
+        }
+
+        static string FindDocfxConfigurationDirectory(string fileDirectory, string rootDirectory)
+        {
+            string fullRootDirectory = Path.GetFullPath(rootDirectory);
+            DirectoryInfo? directory = new(Path.GetFullPath(fileDirectory));
+            while (directory is not null)
+            {
+                if (File.Exists(Path.Combine(directory.FullName, "docfx.json")))
+                {
+                    return directory.FullName;
+                }
+
+                if (Path.GetRelativePath(fullRootDirectory, directory.FullName) == ".")
+                {
+                    break;
+                }
+
+                directory = directory.Parent;
+            }
+
+            return fullRootDirectory;
         }
     }
 }

@@ -3,7 +3,7 @@
 namespace DocfxVerifier
 {
     /// <summary>
-    /// Validates file path entries declared 
+    /// Validates file path entries declared
     /// under build.fileMetadata in a docfx.json file.
     /// </summary>
     public static class PathVerifier
@@ -60,6 +60,8 @@ namespace DocfxVerifier
 
             List<int> fileMetadataPathLineNumbers = await GetFileMetadataPathLineNumbersAsync(configurationPath);
 
+            await writer.WriteLineAsync($"Checking paths in '{configurationPathForLog}'...");
+            
             // Validate file metadata paths and collect errors.
             var errors = new List<ValidationError>();
             ValidateFileMetadataPaths(

@@ -34,7 +34,7 @@ public class PathVerifierTests
             bool result = await PathVerifier.WriteResultsAsync(writer);
 
             Assert.True(result);
-            Assert.Equal(string.Empty, writer.ToString());
+            Assert.Equal($"Checking paths in 'docfx.json'...{Environment.NewLine}", writer.ToString());
         }
         finally
         {
@@ -77,7 +77,7 @@ public class PathVerifierTests
             bool result = await PathVerifier.WriteResultsAsync(writer);
 
             Assert.True(result);
-            Assert.Equal(string.Empty, writer.ToString());
+            Assert.Equal($"Checking paths in 'docfx.json'...{Environment.NewLine}", writer.ToString());
         }
         finally
         {
@@ -120,7 +120,7 @@ public class PathVerifierTests
             bool result = await PathVerifier.WriteResultsAsync(writer);
 
             Assert.True(result);
-            Assert.Equal(string.Empty, writer.ToString());
+            Assert.Equal($"Checking paths in 'docfx.json'...{Environment.NewLine}", writer.ToString());
         }
         finally
         {
@@ -247,7 +247,7 @@ public class PathVerifierTests
             bool result = await PathVerifier.WriteResultsAsync(writer);
 
             Assert.True(result);
-            Assert.Equal(string.Empty, writer.ToString());
+            Assert.Equal($"Checking paths in 'docfx.json'...{Environment.NewLine}", writer.ToString());
         }
         finally
         {
@@ -284,7 +284,7 @@ public class PathVerifierTests
             bool result = await PathVerifier.WriteResultsAsync(writer);
 
             Assert.True(result);
-            Assert.Equal(string.Empty, writer.ToString());
+            Assert.Equal($"Checking paths in './docs/docfx.json'...{Environment.NewLine}", writer.ToString());
         }
         finally
         {
@@ -335,7 +335,7 @@ public class PathVerifierTests
             bool result = await PathVerifier.WriteResultsAsync(writer, modifiedDocfxPath);
 
             Assert.True(result);
-            Assert.Equal(string.Empty, writer.ToString());
+            Assert.Equal($"Checking paths in 'valid-docs/docfx.json'...{Environment.NewLine}", writer.ToString());
         }
         finally
         {
@@ -428,7 +428,7 @@ public class PathVerifierTests
             bool result = await PathVerifier.WriteResultsAsync(writer);
 
             Assert.True(result);
-            Assert.Equal(string.Empty, writer.ToString());
+            Assert.Equal($"Checking paths in 'docfx.json'...{Environment.NewLine}", writer.ToString());
         }
         finally
         {

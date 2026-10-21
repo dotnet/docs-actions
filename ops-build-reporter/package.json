@@ -33,9 +33,9 @@
     "@vercel/ncc": "^0.45.0",
     "jest": "^30.5.2",
     "jest-circus": "^30.5.1",
-    "js-yaml": "^5.4.3",
+    "js-yaml": "^5.5.0",
     "prettier": "^3.9.10",
-    "ts-jest": "^29.4.14",
+    "ts-jest": "^29.4.15",
     "typescript": "^7.0.2"
   }
 }

@@ -16,7 +16,7 @@ async function run(): Promise<void> {
         console.log(
             `Waited ${
                 INITIAL_WAIT_MILLISECONDS / MILLISECONDS_PER_MINUTE
-            } minutes.`
+            } minutes.`,
         );
 
         // Wait for success/fail status of the build.
@@ -27,8 +27,7 @@ async function run(): Promise<void> {
             console.log("❌ Build status has warnings or errors!");
         }
     } catch (error: unknown) {
-        const e = error as Error;
-        setFailed(e.message);
+        setFailed(error instanceof Error ? error.message : String(error));
     }
 }
 

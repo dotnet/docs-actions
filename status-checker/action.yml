@@ -3,8 +3,8 @@ description: "Checks the OpenPublishing.Build status to see if there are build w
 author: 'Genevieve Warren'
 inputs:
   repo_token:
-    description: 'The GITHUB_TOKEN secret. Requires the following permissions: statuses: write.'
+    description: 'The GITHUB_TOKEN. Requires statuses: read; no write permissions.'
     required: true
 runs:
-  using: 'node16'
+  using: 'node24'
   main: 'dist/index.js'

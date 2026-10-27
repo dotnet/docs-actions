@@ -1,9 +1,23 @@
 import { getInput } from "@actions/core";
+import { join } from "path";
+
+function integerInput(
+    name: string,
+    fallback: number,
+    min: number,
+    max: number,
+): number {
+    const raw = getInput(name);
+    const value = raw === "" ? fallback : Number(raw);
+    if (!Number.isSafeInteger(value) || value < min || value > max) {
+        throw new Error(`${name} must be an integer from ${min} to ${max}.`);
+    }
+    return value;
+}
 
 export class WorkflowInput {
     get collapsibleAfter(): number {
-        const val = getInput("collapsible_after", { required: false });
-        return parseInt(val);
+        return integerInput("collapsible_after", 12, 0, 1000);
     }
 
     get repoToken(): string {
@@ -12,17 +26,22 @@ export class WorkflowInput {
     }
 
     get maxRowCount(): number {
-        const val = getInput("max_row_count");
-        return parseInt(val);
+        return integerInput("max_row_count", 50, 1, 1000);
     }
 
     get maxWaitTimeMinutes(): number {
-        const val = parseInt(getInput("max_wait_time_minutes"));
-        return val > 0 ? val : 20;
+        return integerInput("max_wait_time_minutes", 20, 1, 60);
     }
 
-    get annotateFiles(): boolean {
-        return getInput("annotate_file_warnings").toLowerCase() === "true";
+    get outputDirectory(): string {
+        const directory = getInput("output_directory");
+        if (directory) {
+            return directory;
+        }
+        if (!process.env.RUNNER_TEMP) {
+            throw new Error("output_directory or RUNNER_TEMP is required.");
+        }
+        return join(process.env.RUNNER_TEMP, "ops-build-report");
     }
 
     constructor() {}

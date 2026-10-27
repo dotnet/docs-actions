@@ -2,14 +2,14 @@
   "name": "ops-build-reporter-action",
   "version": "3.0.0",
   "private": true,
-  "description": "Helper for Open Publishing Services (OPS)-enabled docs repos. Waits for the OPS build to complete, then inserts preview links and the build report link into the pull request body. Optionally, annotates the changed files with any build suggestions, warnings, or errors.",
+  "description": "Produces OPS preview and diagnostic artifacts, with a separate trusted publisher for PR descriptions and annotations.",
   "main": "lib/main.js",
   "scripts": {
     "build": "tsc",
     "format": "prettier --write **/*.ts",
     "format-check": "prettier --check **/*.ts",
-    "package": "ncc build lib/main.js -o dist --source-map --license licenses.txt",
-    "test": "jest --detectOpenHandles",
+    "package": "ncc build lib/main.js -o dist --source-map --license licenses.txt && ncc build lib/publish.js -o dist/publish --source-map --license licenses.txt",
+    "test": "tsc --project tsconfig.test.json && jest --detectOpenHandles",
     "all": "npm run build && npm run format && npm run package && npm test"
   },
   "repository": {
@@ -36,6 +36,6 @@
     "js-yaml": "^5.5.0",
     "prettier": "^3.9.10",
     "ts-jest": "^29.4.15",
-    "typescript": "^7.0.2"
+    "typescript": "^5.9.3"
   }
 }

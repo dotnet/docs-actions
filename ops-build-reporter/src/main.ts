@@ -1,14 +1,13 @@
 import { setFailed } from "@actions/core";
-import { tryUpdatePullRequestBody } from "./pull-updater";
+import { createBuildReport } from "./pull-updater";
 import { workflowInput } from "./types/WorkflowInput";
 
 async function run(): Promise<void> {
     try {
         const token: string = workflowInput.repoToken;
-        await tryUpdatePullRequestBody(token);
+        await createBuildReport(token);
     } catch (error: unknown) {
-        const e = error as Error;
-        setFailed(e.message);
+        setFailed(error instanceof Error ? error.message : String(error));
     }
 }
 

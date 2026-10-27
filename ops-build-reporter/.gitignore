@@ -97,3 +97,9 @@ Thumbs.db
 # Ignore built ts files
 __tests__/runner/*
 lib/**/*
+
+# GitHub Action publisher files are not .NET publish output.
+!/publish/
+!/publish/action.yml
+!/dist/publish/
+!/dist/publish/**

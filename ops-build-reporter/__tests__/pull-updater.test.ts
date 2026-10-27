@@ -39,6 +39,40 @@ beforeAll(() => {
 });
 
 describe("pull-updater", () => {
+    it("decodes ampersands in preview paths without double-decoding nested entities", () => {
+        const links = extractPreviewLinksFromBuildReport(`
+            <table>
+                <tr><td>File</td><td>Status</td><td>Preview URL</td></tr>
+                <tr><td>docs/a&amp;b.md</td><td>Updated</td>
+                <td><a href="https://review.learn.microsoft.com/a">Preview</a></td></tr>
+                <tr><td>docs/&amp;lt;example&amp;gt;.md</td><td>Updated</td>
+                <td><a href="https://review.learn.microsoft.com/b">Preview</a></td></tr>
+            </table>`);
+
+        expect([...links.keys()]).toEqual([
+            "docs/a&b.md",
+            "docs/&lt;example&gt;.md",
+        ]);
+    });
+
+    it("decodes diagnostic text only once", () => {
+        const diagnostics = extractDiagnosticsFromBuildReport(`
+            <table>
+                <tr><td>File</td><td>Status</td><td>Details</td></tr>
+                <tr><td>docs/a&amp;b.md</td><td>Warning</td>
+                <td>Line 2: [Warning] Use &amp;lt;tag&amp;gt; &amp;amp; value.</td></tr>
+            </table>`);
+
+        expect(diagnostics).toEqual([
+            {
+                path: "docs/a&b.md",
+                line: 2,
+                severity: "Warning",
+                message: "Use &lt;tag&gt; &amp; value.",
+            },
+        ]);
+    });
+
     it("includes added lines whose content begins with plus signs", () => {
         expect([
             ...extractChangedLinesFromPatch(

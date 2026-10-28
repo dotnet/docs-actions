@@ -1,11 +1,20 @@
-import { info, warning, startGroup, endGroup } from "@actions/core";
+import { info, setOutput } from "@actions/core";
 import { context, getOctokit } from "@actions/github";
 import * as https from "https";
-import { PullRequestDetails } from "./types/PullRequestDetails";
+import { mkdir, writeFile } from "fs/promises";
+import { join } from "path";
+import {
+    BuildDiagnostic,
+    MAX_REPORT_BYTES,
+    PREVIEW_TABLE_START,
+    PREVIEW_TABLE_END,
+    mergeReportIntoBody,
+    renderPreviewTable,
+    validateReport,
+    validateUrl,
+} from "./report";
 import { workflowInput } from "./types/WorkflowInput";
 
-const PREVIEW_TABLE_START = "<!-- PREVIEW-TABLE-START -->";
-const PREVIEW_TABLE_END = "<!-- PREVIEW-TABLE-END -->";
 const OPS_CHECK_NAME = "OpenPublishing.Build";
 const OPS_POLL_DELAY_MS = 30_000;
 
@@ -15,143 +24,72 @@ type StatusCheck = {
     detailsUrl: string | null;
 };
 
-type BuildDiagnostic = {
-    path: string;
-    line: number;
-    severity: "Error" | "Warning" | "Suggestion";
-    message: string;
-};
-
-const ANNOTATION_BATCH_SIZE = 50;
-
-export async function tryUpdatePullRequestBody(token: string) {
-    try {
-        const commitOid = context.payload.pull_request?.head.sha;
-        if (!commitOid) {
-            info("Unable to resolve PR head commit SHA.");
-            return;
-        }
-
-        const opsCheck = await waitForStatusCheck(
-            token,
-            commitOid,
-            OPS_CHECK_NAME,
-            calculateMaxPollAttempts(
-                workflowInput.maxWaitTimeMinutes,
-                OPS_POLL_DELAY_MS
-            ),
-            OPS_POLL_DELAY_MS
-        );
-
-        if (!opsCheck || !opsCheck.detailsUrl) {
-            info(
-                `Unable to find a completed ${OPS_CHECK_NAME} status check with a build report URL.`
-            );
-            return;
-        }
-
-        const buildReportHtml = await downloadUrl(opsCheck.detailsUrl);
-        if (!buildReportHtml) {
-            info("Unable to download OPS build report HTML.");
-            return;
-        }
-
-        const previewLinks =
-            extractPreviewLinksFromBuildReport(buildReportHtml);
-        if (previewLinks.size === 0) {
-            info("No preview links found in OPS build report.");
-            return;
-        }
-
-        const graphQLResponse = await getPullRequest(token);
-        if (!graphQLResponse) {
-            info("Unable to get the pull request from GitHub GraphQL");
-            return;
-        }
-
-        const prDetails = graphQLResponse.repository?.pullRequest;
-        if (!prDetails) {
-            info("Unable to pull request details from object graph.");
-            return;
-        }
-
-        const prNumber = context.payload.pull_request?.number;
-        if (prNumber === undefined) {
-            info("Unable to resolve the pull request number.");
-            return;
-        }
-        info(`Update pull ${prNumber} request body.`);
-
-        try {
-            startGroup("Pull request JSON body");
-            info(JSON.stringify(prDetails, undefined, 2));
-            endGroup();
-        } catch {
-            endGroup();
-        }
-
-        const markdownTable = buildMarkdownPreviewTableFromExtractedLinks(
-            previewLinks,
-            commitOid,
-            prDetails.checksUrl
-        );
-
-        // Generate the updated body text.
-        let updatedBody =
-            prDetails.body.includes(PREVIEW_TABLE_START) &&
-            prDetails.body.includes(PREVIEW_TABLE_END) ?
-                replaceExistingTable(prDetails.body, markdownTable) :
-                appendTable(prDetails.body, markdownTable);
-
-        // Add or update the build report link.
-        const buildReportLinkPattern = /\[Build report\]\([^)]+\)/;
-        if (buildReportLinkPattern.test(updatedBody)) {
-            updatedBody = updatedBody.replace(
-                buildReportLinkPattern,
-                `[Build report](${opsCheck.detailsUrl})`
-            );
-        } else {
-            updatedBody += `\n\n[Build report](${opsCheck.detailsUrl})`;
-        }
-
-        startGroup("Proposed PR body");
-        info(updatedBody);
-        endGroup();
-
-        // Update the pull request body with the new content.
-        const octokit = getOctokit(token);
-        const response = await octokit.rest.pulls.update({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            pull_number: prNumber,
-            body: updatedBody,
-        });
-
-        if (response && response.status === 200) {
-            info("Pull request updated...");
-        } else {
-            info("Unable to update pull request...");
-        }
-
-        // Add build warning annotations to changed lines in the PR.
-        if (workflowInput.annotateFiles) {
-            try {
-                await annotateChangedLines(
-                    token,
-                    prNumber,
-                    commitOid,
-                    buildReportHtml,
-                    opsCheck.detailsUrl
-                );
-            } catch (error) {
-                warning(`Unable to annotate changed files: ${error}`);
-            }
-        }
-    } catch (error) {
-        warning(`Encountered error: ${error}`);
-    } finally {
-        info("Finished work.");
+export async function createBuildReport(token: string): Promise<void> {
+    if (context.eventName !== "pull_request") {
+        throw new Error("The artifact producer requires a pull_request event.");
     }
+    const commitOid = context.payload.pull_request?.head.sha;
+    const pullNumber = context.payload.pull_request?.number;
+    if (!commitOid || !pullNumber) {
+        throw new Error("Unable to resolve PR number and head commit SHA.");
+    }
+
+    const opsCheck = await waitForStatusCheck(
+        token,
+        commitOid,
+        OPS_CHECK_NAME,
+        calculateMaxPollAttempts(
+            workflowInput.maxWaitTimeMinutes,
+            OPS_POLL_DELAY_MS,
+        ),
+        OPS_POLL_DELAY_MS,
+    );
+
+    if (!opsCheck || !opsCheck.detailsUrl) {
+        throw new Error(
+            `Unable to find a completed ${OPS_CHECK_NAME} status with a report URL.`,
+        );
+    }
+
+    validateUrl(opsCheck.detailsUrl, "report");
+    const buildReportHtml = await downloadUrl(opsCheck.detailsUrl);
+    if (!buildReportHtml) {
+        throw new Error("OPS build report HTML was empty.");
+    }
+
+    const previewLinks = extractPreviewLinksFromBuildReport(buildReportHtml);
+    const report = validateReport({
+        version: 1,
+        repository: `${context.repo.owner}/${context.repo.repo}`,
+        pullNumber,
+        headSha: commitOid,
+        runId: context.runId,
+        runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+        buildReportUrl: opsCheck.detailsUrl,
+        previewLinks: [...previewLinks].map(([path, url]) => ({ path, url })),
+        diagnostics: extractDiagnosticsFromBuildReport(buildReportHtml),
+        collapsibleAfter: workflowInput.collapsibleAfter,
+        maxRowCount: workflowInput.maxRowCount,
+    });
+    const json = JSON.stringify(report);
+    if (Buffer.byteLength(json) > MAX_REPORT_BYTES) {
+        throw new Error("OPS report exceeds the 10 MiB artifact limit.");
+    }
+    await mkdir(workflowInput.outputDirectory, { recursive: true });
+    await writeFile(
+        join(workflowInput.outputDirectory, "report.json"),
+        json,
+        "utf8",
+    );
+    await writeFile(
+        join(workflowInput.outputDirectory, "preview.md"),
+        mergeReportIntoBody("", report).trim(),
+        "utf8",
+    );
+    setOutput("artifact_path", workflowInput.outputDirectory);
+    info(
+        `Prepared ${report.previewLinks.length} previews and ${report.diagnostics.length} diagnostics.`,
+    );
 }
 
 async function waitForStatusCheck(
@@ -159,13 +97,13 @@ async function waitForStatusCheck(
     commitSha: string,
     checkName: string,
     maxAttempts: number,
-    pollDelayMs: number
+    pollDelayMs: number,
 ): Promise<StatusCheck | null> {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         const check = await getSpecificStatusCheck(token, commitSha, checkName);
         if (check) {
             info(
-                `Found ${checkName} status check (${check.status}) on attempt ${attempt}/${maxAttempts}.`
+                `Found ${checkName} status check (${check.status}) on attempt ${attempt}/${maxAttempts}.`,
             );
 
             if (check.status === "success") {
@@ -177,7 +115,7 @@ async function waitForStatusCheck(
             }
         } else {
             info(
-                `${checkName} status check not found on attempt ${attempt}/${maxAttempts}.`
+                `${checkName} status check not found on attempt ${attempt}/${maxAttempts}.`,
             );
         }
 
@@ -192,7 +130,7 @@ async function waitForStatusCheck(
 async function getSpecificStatusCheck(
     token: string,
     commitSha: string,
-    checkName: string
+    checkName: string,
 ): Promise<StatusCheck | null> {
     const octokit = getOctokit(token);
     const response = await octokit.rest.repos.getCombinedStatusForRef({
@@ -202,7 +140,7 @@ async function getSpecificStatusCheck(
     });
 
     const exactMatch = response.data.statuses.find(
-        (status) => status.context === checkName
+        (status) => status.context === checkName,
     );
 
     if (!exactMatch) {
@@ -222,18 +160,27 @@ function delay(ms: number): Promise<void> {
 
 function calculateMaxPollAttempts(
     maxWaitTimeMinutes: number,
-    pollDelayMs: number
+    pollDelayMs: number,
 ): number {
     return pollDelayMs > 0
         ? Math.max(
-            1,
-            Math.floor((maxWaitTimeMinutes * 60_000) / pollDelayMs) + 1
-        )
+              1,
+              Math.floor((maxWaitTimeMinutes * 60_000) / pollDelayMs) + 1,
+          )
         : 1;
 }
 
-async function downloadUrl(url: string): Promise<string> {
-    return await new Promise((resolve) => {
+async function downloadUrl(url: string, redirects = 0): Promise<string> {
+    const parsed = new URL(url);
+    if (
+        parsed.protocol !== "https:" ||
+        parsed.username ||
+        parsed.password ||
+        redirects > 5
+    ) {
+        throw new Error("Invalid OPS report redirect.");
+    }
+    return await new Promise((resolve, reject) => {
         const request = https.get(url, (response) => {
             const statusCode = response.statusCode ?? 0;
 
@@ -243,27 +190,46 @@ async function downloadUrl(url: string): Promise<string> {
                 response.headers.location
             ) {
                 response.resume();
-                downloadUrl(response.headers.location)
+                downloadUrl(
+                    new URL(response.headers.location, url).href,
+                    redirects + 1,
+                )
                     .then(resolve)
-                    .catch(() => resolve(""));
+                    .catch(reject);
                 return;
             }
 
             if (statusCode < 200 || statusCode >= 300) {
                 response.resume();
-                resolve("");
+                reject(
+                    new Error(
+                        `OPS report download failed with HTTP ${statusCode}.`,
+                    ),
+                );
                 return;
             }
 
             let data = "";
+            let bytes = 0;
             response.setEncoding("utf8");
             response.on("data", (chunk) => {
+                bytes += Buffer.byteLength(chunk);
+                if (bytes > MAX_REPORT_BYTES) {
+                    response.destroy(
+                        new Error("OPS report HTML exceeds 10 MiB."),
+                    );
+                    return;
+                }
                 data += chunk;
             });
             response.on("end", () => resolve(data));
+            response.on("error", reject);
         });
 
-        request.on("error", () => resolve(""));
+        request.setTimeout(30000, () =>
+            request.destroy(new Error("OPS report download timed out.")),
+        );
+        request.on("error", reject);
     });
 }
 
@@ -308,12 +274,12 @@ function tableHasPreviewHeaders(tableHtml: string): boolean {
     const firstRow = tableHtml.match(/<tr[\s\S]*?<\/tr>/i)?.[0] ?? "";
     const headerCells = firstRow.match(/<t[dh][\s\S]*?<\/t[dh]>/gi) ?? [];
     const headerValues = headerCells.map((cell) =>
-        decodeHtmlEntities(stripTags(cell)).trim().toLowerCase()
+        decodeHtmlEntities(stripTags(cell)).trim().toLowerCase(),
     );
 
     const hasFileHeader = headerValues.some((_) => _ === "file");
     const hasPreviewHeader = headerValues.some((_) =>
-        _.includes("preview url")
+        _.includes("preview url"),
     );
 
     return hasFileHeader && hasPreviewHeader;
@@ -331,12 +297,12 @@ function stripTags(input: string): string {
 function decodeHtmlEntities(input: string): string {
     return input
         .replace(/&nbsp;/g, " ")
-        .replace(/&amp;/g, "&")
         .replace(/&lt;/g, "<")
         .replace(/&gt;/g, ">")
         .replace(/&quot;/g, '"')
         .replace(/&#39;/g, "'")
-        .replace(/\s+/g, " ");
+        .replace(/\s+/g, " ")
+        .replace(/&amp;/g, "&");
 }
 
 function extractDiagnosticsFromBuildReport(html: string): BuildDiagnostic[] {
@@ -350,7 +316,7 @@ function extractDiagnosticsFromBuildReport(html: string): BuildDiagnostic[] {
         }
 
         const headers = extractCellText(rows[0] ?? "").map((header) =>
-            header.toLowerCase()
+            header.toLowerCase(),
         );
         const fileIndex = headers.indexOf("file");
         const statusIndex = headers.indexOf("status");
@@ -380,8 +346,8 @@ function extractDiagnosticsFromBuildReport(html: string): BuildDiagnostic[] {
                             severity === "error"
                                 ? "Error"
                                 : severity === "warning"
-                                    ? "Warning"
-                                    : "Suggestion",
+                                  ? "Warning"
+                                  : "Suggestion",
                         message: match[3].trim(),
                     });
                 }
@@ -412,7 +378,10 @@ function extractChangedLinesFromPatch(patch: string): Set<number> {
             continue;
         }
 
-        if (patchLine.startsWith("+") && !patchLine.startsWith("+++")) {
+        if (newLine === 0) {
+            continue;
+        }
+        if (patchLine.startsWith("+")) {
             changedLines.add(newLine);
             newLine++;
         } else if (
@@ -429,28 +398,21 @@ function extractChangedLinesFromPatch(patch: string): Set<number> {
 
 function filterDiagnosticsToChangedLines(
     diagnostics: BuildDiagnostic[],
-    changedLinesByPath: Map<string, Set<number>>
+    changedLinesByPath: Map<string, Set<number>>,
 ): BuildDiagnostic[] {
     return diagnostics.filter((diagnostic) =>
-        changedLinesByPath.get(diagnostic.path)?.has(diagnostic.line)
+        changedLinesByPath.get(diagnostic.path)?.has(diagnostic.line),
     );
 }
 
-async function annotateChangedLines(
+export async function annotateChangedLines(
     token: string,
     pullNumber: number,
     commitOid: string,
-    buildReportHtml: string,
-    buildReportUrl: string
+    diagnostics: BuildDiagnostic[],
+    buildReportUrl: string,
+    externalId: string,
 ): Promise<void> {
-    const diagnostics = extractDiagnosticsFromBuildReport(buildReportHtml);
-    if (diagnostics.length === 0) {
-        info(
-            "No suggestions, warnings, or errors with line numbers found in validated files."
-        );
-        return;
-    }
-
     const octokit = getOctokit(token);
     const files = await octokit.paginate(octokit.rest.pulls.listFiles, {
         owner: context.repo.owner,
@@ -463,20 +425,15 @@ async function annotateChangedLines(
         if (file.patch) {
             changedLinesByPath.set(
                 file.filename,
-                extractChangedLinesFromPatch(file.patch)
+                extractChangedLinesFromPatch(file.patch),
             );
         }
     }
 
     const filteredDiagnostics = filterDiagnosticsToChangedLines(
         diagnostics,
-        changedLinesByPath
+        changedLinesByPath,
     );
-    if (filteredDiagnostics.length === 0) {
-        info("No build errors, warnings, or suggestions occur on changed PR lines.");
-        return;
-    }
-
     const annotations = filteredDiagnostics.map((diagnostic) => ({
         path: diagnostic.path,
         start_line: diagnostic.line,
@@ -484,19 +441,50 @@ async function annotateChangedLines(
         annotation_level: (diagnostic.severity === "Error"
             ? "failure"
             : diagnostic.severity === "Warning"
-                ? "warning"
-                : "notice") as "failure" | "warning" | "notice",
+              ? "warning"
+              : "notice") as "failure" | "warning" | "notice",
         title: `OPS ${diagnostic.severity}`,
         message: diagnostic.message,
     }));
+    const ANNOTATION_BATCH_SIZE = 50;
     const firstBatch = annotations.slice(0, ANNOTATION_BATCH_SIZE);
+    const existing = await octokit.paginate(octokit.rest.checks.listForRef, {
+        owner: context.repo.owner,
+        repo: context.repo.repo,
+        ref: commitOid,
+        check_name: "OpenPublishing.Build annotations",
+        per_page: 100,
+    });
+    if (
+        existing.some(
+            (check) =>
+                check.external_id === externalId &&
+                check.status === "completed" &&
+                check.conclusion === "neutral",
+        )
+    ) {
+        info("Annotations for this run attempt have already been published.");
+        return;
+    }
+    for (const check of existing.filter(
+        (check) =>
+            check.external_id === externalId && check.status !== "completed",
+    )) {
+        await octokit.rest.checks.update({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            check_run_id: check.id,
+            status: "completed",
+            conclusion: "cancelled",
+        });
+    }
     const response = await octokit.rest.checks.create({
         owner: context.repo.owner,
         repo: context.repo.repo,
         name: "OpenPublishing.Build annotations",
         head_sha: commitOid,
-        status: "completed",
-        conclusion: "neutral",
+        external_id: externalId,
+        status: "in_progress",
         details_url: buildReportUrl,
         output: {
             title: "OpenPublishing.Build diagnostics",
@@ -519,91 +507,35 @@ async function annotateChangedLines(
                 summary: `${annotations.length} error(s), warning(s), or suggestion(s) found on changed lines.`,
                 annotations: annotations.slice(
                     index,
-                    index + ANNOTATION_BATCH_SIZE
+                    index + ANNOTATION_BATCH_SIZE,
                 ),
             },
         });
     }
 
+    await octokit.rest.checks.update({
+        owner: context.repo.owner,
+        repo: context.repo.repo,
+        check_run_id: response.data.id,
+        status: "completed",
+        conclusion: "neutral",
+    });
     info(`Annotated ${annotations.length} changed line(s).`);
 }
 
 function buildMarkdownPreviewTableFromExtractedLinks(
     previewLinks: Map<string, string>,
     commitOid: string,
-    checksUrl: string
+    checksUrl: string,
 ): string {
-    let markdownTable = "#### Internal previews\n\n";
-    const isCollapsible =
-        (workflowInput.collapsibleAfter ?? 10) < previewLinks.size;
-    if (isCollapsible) {
-        markdownTable +=
-            "<details><summary><strong>Toggle expand/collapse</strong></summary><br/>\n\n";
-    }
-
-    markdownTable += "| File | Preview link |\n";
-    markdownTable += "|:--|:--|\n";
-
-    const sortedLinks = [...previewLinks.entries()].sort(([a], [b]) =>
-        a.localeCompare(b)
+    return renderPreviewTable(
+        previewLinks,
+        `${context.repo.owner}/${context.repo.repo}`,
+        commitOid,
+        checksUrl,
+        workflowInput.collapsibleAfter,
+        workflowInput.maxRowCount,
     );
-    const exceedsMax = sortedLinks.length > workflowInput.maxRowCount;
-    const displayedLinks = sortedLinks.slice(0, workflowInput.maxRowCount);
-
-    for (const [file, previewUrl] of displayedLinks) {
-        const previewTitle = "Learn preview";
-        markdownTable += `| [${file}](${toGitHubLink(
-            file,
-            commitOid
-        )}) | [${previewTitle}](${previewUrl}) |\n`;
-    }
-
-    if (isCollapsible) {
-        markdownTable += "\n</details>\n";
-    }
-
-    if (exceedsMax) {
-        markdownTable += `\n> [!NOTE]\n> This table shows the first ${workflowInput.maxRowCount} preview links (sorted alphabetically by file path) found in the OPS build report. For the full list, select <strong>OpenPublishing.Build Details</strong> within [checks](${checksUrl}).\n`;
-    }
-
-    return markdownTable;
-}
-
-/**
- * Returns the {PullRequestDetails} that correspond to
- * the contextual GitHub Action workflow run.
- * @param token The GITHUB_TOKEN value to obtain an instance of octokit with.
- * @returns A {Promise} of {PullRequestDetails}.
- */
-async function getPullRequest(token: string): Promise<PullRequestDetails> {
-    const octokit = getOctokit(token);
-    return await octokit.graphql<PullRequestDetails>({
-        query: `query getPullRequest($name: String!, $owner: String!, $number: Int!) {
-      repository(name: $name, owner: $owner) {
-        pullRequest(number: $number) {
-          body
-          checksUrl
-          changedFiles
-          state
-        }
-      }
-    }`,
-        name: context.repo.repo,
-        owner: context.repo.owner,
-        number: context.payload.number,
-    });
-}
-
-function toGitHubLink(
-    file: string,
-    commitOid: string | undefined | null
-): string {
-    const owner = context.repo.owner;
-    const repo = context.repo.repo;
-
-    return commitOid
-        ? `https://github.com/${owner}/${repo}/blob/${commitOid}/${file}`
-        : `_${file}_`;
 }
 
 function replaceExistingTable(body: string, table: string) {
@@ -629,7 +561,8 @@ export const exportedForTesting = {
     appendTable,
     buildMarkdownPreviewTableFromExtractedLinks,
     calculateMaxPollAttempts,
-    extractChangedLinesFromPatch,extractDiagnosticsFromBuildReport,
+    extractChangedLinesFromPatch,
+    extractDiagnosticsFromBuildReport,
     extractPreviewLinksFromBuildReport,
     filterDiagnosticsToChangedLines,
     PREVIEW_TABLE_END,

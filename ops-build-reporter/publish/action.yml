@@ -1,0 +1,18 @@
+name: 'OPS Build Publisher'
+description: 'Publishes validated OPS artifacts from a pull_request run to the PR description and optional diagnostic check.'
+inputs:
+  repo_token:
+    description: 'GITHUB_TOKEN with actions: read, pull-requests: write, and checks: write for annotations.'
+    required: true
+  artifact_directory:
+    description: 'Directory containing report.json downloaded from the triggering workflow run.'
+    required: true
+  producer_workflow_file:
+    description: 'Expected caller workflow path, for example .github/workflows/ops-build-reporter.yml.'
+    required: true
+  annotate_file_warnings:
+    description: 'Annotate errors, warnings, and suggestions on changed PR lines in a neutral check.'
+    default: 'false'
+runs:
+  using: 'node24'
+  main: '../dist/publish/index.js'

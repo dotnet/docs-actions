@@ -1,13 +1,12 @@
 name: 'OPS Build Reporter'
-description: 'Inserts preview links and the build report link into the pull request body. Optionally, annotates the changed files with any build suggestions, warnings, or errors.'
+description: 'Produces preview and diagnostic artifacts from OPS using a read-only pull_request token. Does not update pull requests.'
 author: 'Genevieve Warren'
 inputs:
   repo_token:
-    description: 'The GITHUB_TOKEN secret. Requires pull-requests: write and, when annotate_file_warnings is true, checks: write.'
+    description: 'The GITHUB_TOKEN. Requires statuses: read; no write permissions or repository secrets.'
     required: true
-  annotate_file_warnings:
-    description: 'Whether to annotate changed lines on the Files changed tab with errors and warnings from the build report.'
-    default: 'false'
+  output_directory:
+    description: 'Directory for report.json and preview.md. Defaults to RUNNER_TEMP/ops-build-report.'
   collapsible_after:
     description: 'The number at which the automated preview table defaults as collapsed but expandable, using the HTML summary and details elements.'
     default: '12'
@@ -17,6 +16,9 @@ inputs:
   max_wait_time_minutes:
     description: 'The maximum number of minutes to wait for the OpenPublishing.Build status check to complete.'
     default: '20'
+outputs:
+  artifact_path:
+    description: 'Directory to upload with actions/upload-artifact.'
 runs:
-  using: 'node16'
+  using: 'node24'
   main: 'dist/index.js'

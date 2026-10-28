@@ -6,12 +6,15 @@ Whether or not there are build warnings, you'll see a status check for this acti
 
 ## Usage
 
-Add a new YAML file to your repo in the *.github/workflows* folder. The only required input is the GitHub OAuth token.
+Add a workflow in your repository. The only required input is the read-only GitHub token.
 
 For example, the following YAML example calls this status-checker Action.
 
 ```yml
-on: [pull_request_target]
+on: [pull_request]
+
+permissions:
+  statuses: read
 
 jobs:
   status_checker_job:
@@ -20,7 +23,9 @@ jobs:
     steps:
     - uses: dotnet/docs-actions/status-checker@main
       with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
+        repo_token: ${{ github.token }}
 ```
 
-Note: Use the `pull_request_target` event instead of the `pull_request` event as the trigger. The `pull_request_target` event runs against the workflow and code from the *base* of the pull request instead of from the merge commit. For more information, see [Improvements for public repository forks](https://github.blog/2020-08-03-github-actions-improvements-for-fork-and-pull-request-workflows/#improvements-for-public-repository-forks).
+The action reads the `OpenPublishing.Build` status for the PR **head** commit, not the synthetic merge commit. It needs no write permissions and works with fork PRs. Build warnings, failures, and errors fail validation; suggestions alone do not.
+
+For validation together with preview links and diagnostic annotations, use the two [OPS reporting workflows](../ops-build-reporter/README.md). Their producer runs this action independently of artifact collection, so failed validation does not prevent publishing diagnostics.

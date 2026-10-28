@@ -1,6 +1,25 @@
 import { exportedForTesting } from "../src/pull-updater";
-import { beforeAll, describe, expect, it } from "@jest/globals";
+import { beforeAll, describe, expect, it, jest } from "@jest/globals";
 import { WorkflowInput, workflowInput } from "../src/types/WorkflowInput";
+
+jest.mock(
+    "@actions/core",
+    () => ({
+        info: jest.fn(),
+        setOutput: jest.fn(),
+        getInput: (name: string) =>
+            process.env[`INPUT_${name.toUpperCase()}`] ?? "",
+    }),
+    { virtual: true },
+);
+jest.mock(
+    "@actions/github",
+    () => ({
+        context: { repo: { owner: "dotnet", repo: "docs" } },
+        getOctokit: jest.fn(),
+    }),
+    { virtual: true },
+);
 
 const {
     appendTable,
@@ -20,6 +39,47 @@ beforeAll(() => {
 });
 
 describe("pull-updater", () => {
+    it("decodes ampersands in preview paths without double-decoding nested entities", () => {
+        const links = extractPreviewLinksFromBuildReport(`
+            <table>
+                <tr><td>File</td><td>Status</td><td>Preview URL</td></tr>
+                <tr><td>docs/a&amp;b.md</td><td>Updated</td>
+                <td><a href="https://review.learn.microsoft.com/a">Preview</a></td></tr>
+                <tr><td>docs/&amp;lt;example&amp;gt;.md</td><td>Updated</td>
+                <td><a href="https://review.learn.microsoft.com/b">Preview</a></td></tr>
+            </table>`);
+
+        expect([...links.keys()]).toEqual([
+            "docs/a&b.md",
+            "docs/&lt;example&gt;.md",
+        ]);
+    });
+
+    it("decodes diagnostic text only once", () => {
+        const diagnostics = extractDiagnosticsFromBuildReport(`
+            <table>
+                <tr><td>File</td><td>Status</td><td>Details</td></tr>
+                <tr><td>docs/a&amp;b.md</td><td>Warning</td>
+                <td>Line 2: [Warning] Use &amp;lt;tag&amp;gt; &amp;amp; value.</td></tr>
+            </table>`);
+
+        expect(diagnostics).toEqual([
+            {
+                path: "docs/a&b.md",
+                line: 2,
+                severity: "Warning",
+                message: "Use &lt;tag&gt; &amp; value.",
+            },
+        ]);
+    });
+
+    it("includes added lines whose content begins with plus signs", () => {
+        expect([
+            ...extractChangedLinesFromPatch(
+                "+++ file header\n@@ -0,0 +1,2 @@\n+++counter;\n+next line",
+            ),
+        ]).toEqual([1, 2]);
+    });
     it("appendTable correctly appends table", () => {
         const body = "...";
         const actual = appendTable(body, "[table]");
@@ -85,7 +145,7 @@ ${PREVIEW_TABLE_END}`;
         setInput("COLLAPSIBLE_AFTER", "7");
         setInput("MAX_ROW_COUNT", "42");
         setInput("MAX_WAIT_TIME_MINUTES", "15");
-        setInput("annotate_file_warnings", "true");
+        setInput("OUTPUT_DIRECTORY", "report-output");
         setInput("REPO_TOKEN", "test-token");
 
         const opts: WorkflowInput = workflowInput;
@@ -94,7 +154,7 @@ ${PREVIEW_TABLE_END}`;
         expect(opts.collapsibleAfter).toBe(7);
         expect(opts.maxRowCount).toBe(42);
         expect(opts.maxWaitTimeMinutes).toBe(15);
-        expect(opts.annotateFiles).toBe(true);
+        expect(opts.outputDirectory).toBe("report-output");
         expect(opts.repoToken).toBe("test-token");
     });
 
@@ -128,10 +188,10 @@ ${PREVIEW_TABLE_END}`;
 
         expect(actual.size).toBe(2);
         expect(actual.get("docs/a.md")).toBe(
-            "https://review.learn.microsoft.com/en-us/dotnet/a?branch=pr-en-us-99"
+            "https://review.learn.microsoft.com/en-us/dotnet/a?branch=pr-en-us-99",
         );
         expect(actual.get("docs/b.yml")).toBe(
-            "https://review.learn.microsoft.com/en-us/dotnet/b?branch=pr-en-us-99"
+            "https://review.learn.microsoft.com/en-us/dotnet/b?branch=pr-en-us-99",
         );
     });
 
@@ -223,7 +283,7 @@ ${PREVIEW_TABLE_END}`;
             new Map([
                 ["articles/create.md", createChangedLines],
                 ["articles/overview.md", overviewChangedLines],
-            ])
+            ]),
         );
 
         expect(filtered.map(({ path, line }) => `${path}:${line}`)).toEqual([
@@ -248,7 +308,7 @@ ${PREVIEW_TABLE_END}`;
         const actual = buildMarkdownPreviewTableFromExtractedLinks(
             links,
             "oid",
-            "https://github.com/dotnet/docs/pull/7/checks"
+            "https://github.com/dotnet/docs/pull/7/checks",
         );
 
         expect(actual).toEqual(
@@ -256,7 +316,7 @@ ${PREVIEW_TABLE_END}`;
                 "| File | Preview link |\n" +
                 "|:--|:--|\n" +
                 "| [docs/a.md](https://github.com/dotnet/docs/blob/oid/docs/a.md) | [Learn preview](https://review.learn.microsoft.com/en-us/dotnet/a?branch=pr-en-us-7) |\n" +
-                "| [docs/b.yml](https://github.com/dotnet/docs/blob/oid/docs/b.yml) | [Learn preview](https://review.learn.microsoft.com/en-us/dotnet/b?branch=pr-en-us-7) |\n"
+                "| [docs/b.yml](https://github.com/dotnet/docs/blob/oid/docs/b.yml) | [Learn preview](https://review.learn.microsoft.com/en-us/dotnet/b?branch=pr-en-us-7) |\n",
         );
     });
 
@@ -270,11 +330,11 @@ ${PREVIEW_TABLE_END}`;
         const actual = buildMarkdownPreviewTableFromExtractedLinks(
             links,
             "oid",
-            "https://github.com/dotnet/docs/pull/7/checks"
+            "https://github.com/dotnet/docs/pull/7/checks",
         );
 
         expect(actual).toContain(
-            "<details><summary><strong>Toggle expand/collapse</strong></summary><br/>"
+            "<details><summary><strong>Toggle expand/collapse</strong></summary><br/>",
         );
         expect(actual).toContain("</details>");
     });

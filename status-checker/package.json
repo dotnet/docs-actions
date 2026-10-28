@@ -9,7 +9,7 @@
     "format": "prettier --write **/*.ts",
     "format-check": "prettier --check **/*.ts",
     "package": "ncc build lib/main.js -o dist --source-map --license licenses.txt",
-    "test": "jest --detectOpenHandles",
+    "test": "tsc --project tsconfig.test.json && jest --detectOpenHandles",
     "all": "npm run build && npm run format && npm run package && npm test"
   },
   "repository": {
@@ -36,6 +36,6 @@
     "js-yaml": "^5.5.0",
     "prettier": "^3.9.10",
     "ts-jest": "^29.4.15",
-    "typescript": "^7.0.2"
+    "typescript": "^5.9.3"
   }
 }
